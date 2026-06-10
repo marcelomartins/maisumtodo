@@ -10,7 +10,6 @@ import type { TaskStatus, TodoProject, TodoTask } from '../types'
 
 type StatusMeta = {
   label: string
-  description: string
   color: BadgeProps['color']
   icon: string
 }
@@ -18,7 +17,6 @@ type StatusMeta = {
 type KanbanColumn = {
   key: TaskStatus
   title: string
-  description: string
   items: TodoTask[]
 }
 
@@ -33,6 +31,8 @@ const newProjectName = ref('')
 const isCreatingProject = ref(false)
 const projectCreateInputRef = ref<{ inputRef?: HTMLInputElement | null } | null>(null)
 const projectNameDraft = ref('')
+const isEditingProjectName = ref(false)
+const projectNameInputRef = ref<{ inputRef?: HTMLInputElement | null } | null>(null)
 const newTaskTitle = ref('')
 const editingTaskUuid = ref<string | null>(null)
 const editingTaskTitle = ref('')
@@ -45,19 +45,16 @@ const statusOrder: TaskStatus[] = ['TODO', 'DOING', 'DONE']
 const statusMeta: Record<TaskStatus, StatusMeta> = {
   TODO: {
     label: 'A fazer',
-    description: 'Entradas e proximas acoes.',
     color: 'neutral',
     icon: 'i-lucide-circle'
   },
   DOING: {
     label: 'Fazendo',
-    description: 'Itens em execucao agora.',
     color: 'info',
     icon: 'i-lucide-circle-dot'
   },
   DONE: {
     label: 'Concluido',
-    description: 'O que ja saiu do caminho.',
     color: 'success',
     icon: 'i-lucide-circle-check'
   }
@@ -90,6 +87,14 @@ const selectedProject = computed(() => {
   return projects.value.find((project) => project.uuid === selectedProjectUuid.value) ?? null
 })
 
+const listedTasks = computed(() => {
+  return [...tasks.value].sort((a, b) => {
+    const doneDiff = Number(a.status === 'DONE') - Number(b.status === 'DONE')
+    if (doneDiff !== 0) return doneDiff
+    return b.dateCreated.localeCompare(a.dateCreated)
+  })
+})
+
 const orderedTasks = computed(() => {
   return [...tasks.value].sort((a, b) => {
     const statusDiff = statusOrder.indexOf(a.status) - statusOrder.indexOf(b.status)
@@ -104,13 +109,11 @@ const kanbanColumns = computed<KanbanColumn[]>(() => {
   return statusOrder.map((status) => ({
     key: status,
     title: statusMeta[status].label,
-    description: statusMeta[status].description,
     items: tasksByStatus(status)
   }))
 })
 
-const doneCount = computed(() => tasks.value.filter((task) => task.status === 'DONE').length)
-const activeCount = computed(() => tasks.value.length - doneCount.value)
+const activeCount = computed(() => tasks.value.filter((task) => task.status !== 'DONE').length)
 
 const containerRefs = ref<Map<TaskStatus, HTMLElement>>(new Map())
 const localItems = reactive<Record<TaskStatus, TodoTask[]>>({
@@ -136,6 +139,7 @@ watch(selectedProjectUuid, async (projectUuid) => {
 
 watch(selectedProject, (project) => {
   projectNameDraft.value = project?.name ?? ''
+  isEditingProjectName.value = false
 }, { immediate: true })
 
 watch(
@@ -210,34 +214,47 @@ function cancelProjectCreate() {
   newProjectName.value = ''
 }
 
-async function renameProject() {
+async function startProjectNameEdit() {
+  const project = selectedProject.value
+  if (!project) return
+
+  projectNameDraft.value = project.name
+  isEditingProjectName.value = true
+  await nextTick()
+  const input = projectNameInputRef.value?.inputRef
+  input?.focus()
+  input?.setSelectionRange(projectNameDraft.value.length, projectNameDraft.value.length)
+}
+
+function cancelProjectNameEdit() {
+  projectNameDraft.value = selectedProject.value?.name ?? ''
+  isEditingProjectName.value = false
+}
+
+async function saveProjectNameEdit() {
+  if (!isEditingProjectName.value || loading.value) return
+
   const project = selectedProject.value
   const name = projectNameDraft.value.trim()
-  if (!project || !name || name === project.name) return
 
-  await run(async () => {
+  if (!project) {
+    cancelProjectNameEdit()
+    return
+  }
+
+  if (!name || name === project.name) {
+    cancelProjectNameEdit()
+    return
+  }
+
+  const success = await run(async () => {
     const updatedProject = await todosApi.updateProject(project.uuid, { name })
     replaceProject(updatedProject)
   })
-}
 
-async function deleteSelectedProject() {
-  const project = selectedProject.value
-  if (!project || !window.confirm(`Excluir o projeto "${project.name}" e suas tarefas?`)) return
-
-  await run(async () => {
-    await todosApi.deleteProject(project.uuid)
-    projects.value = projects.value.filter((item) => item.uuid !== project.uuid)
-    tasks.value = []
-    syncLocalItems()
-
-    const nextProject = projects.value[0]
-    if (nextProject) {
-      await selectProject(nextProject.uuid)
-    } else {
-      await router.replace({ name: 'todos' })
-    }
-  })
+  if (success) {
+    isEditingProjectName.value = false
+  }
 }
 
 async function createTask(status: TaskStatus = 'TODO', title = newTaskTitle.value) {
@@ -264,6 +281,7 @@ async function openQuickCreate(status: TaskStatus) {
   quickCreateTitle.value = ''
   await nextTick()
   quickCreateInputRef.value?.inputRef?.focus()
+  requestAnimationFrame(() => quickCreateInputRef.value?.inputRef?.focus())
 }
 
 function cancelQuickCreate() {
@@ -276,6 +294,17 @@ async function saveQuickCreate(status: TaskStatus) {
   if (success) {
     cancelQuickCreate()
   }
+}
+
+function handleQuickCreateBlur(status: TaskStatus) {
+  if (quickCreateColumn.value !== status || loading.value) return
+
+  if (!quickCreateTitle.value.trim()) {
+    cancelQuickCreate()
+    return
+  }
+
+  void saveQuickCreate(status)
 }
 
 async function saveTaskTitle(task: TodoTask) {
@@ -314,6 +343,8 @@ function cancelTaskEdit() {
 }
 
 async function deleteTask(task: TodoTask) {
+  if (!window.confirm(`Excluir a tarefa "${task.title}"?`)) return
+
   await run(async () => {
     await todosApi.deleteTask(task.uuid)
     tasks.value = tasks.value.filter((item) => item.uuid !== task.uuid)
@@ -490,16 +521,6 @@ function taskCode(task: TodoTask) {
   return `#${String(index + 1).padStart(3, '0')}`
 }
 
-function formattedDate(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit',
-    month: 'short'
-  }).format(date)
-}
-
 async function run(action: () => Promise<void>) {
   loading.value = true
   errorMessage.value = ''
@@ -517,15 +538,25 @@ async function run(action: () => Promise<void>) {
 </script>
 
 <template>
-  <main class="min-h-screen bg-muted/40 text-default">
+  <main class="min-h-screen bg-zinc-50 text-default dark:bg-zinc-950">
     <div class="flex min-h-screen flex-col lg:flex-row">
-      <aside class="border-b border-default bg-default/95 p-4 shadow-sm backdrop-blur lg:w-80 lg:border-b-0 lg:border-r">
-        <div class="flex items-center justify-between gap-3">
-          <div>
-            <p class="text-sm text-muted">Mais Um Todo</p>
-            <h1 class="text-xl font-bold text-highlighted">Projetos</h1>
+      <aside class="border-b border-default bg-elevated/25 p-4 backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:w-[18rem] lg:border-b-0 lg:border-r lg:p-5">
+        <div class="space-y-4">
+          <div class="flex min-w-0 items-center gap-3 rounded-2xl border border-default bg-default/70 p-3 shadow-sm">
+            <div class="flex size-11 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-500/20">
+              <UIcon name="i-lucide-list-checks" class="size-5.5" />
+            </div>
+            <div class="min-w-0">
+              <p class="truncate text-base font-bold leading-5 text-highlighted">Mais Um Todo</p>
+              <p class="truncate text-xs text-muted">Organize suas tarefas</p>
+            </div>
           </div>
-          <div class="flex items-center gap-1">
+
+          <div class="flex items-center justify-between gap-3 px-1">
+            <div class="min-w-0">
+              <p class="text-xs font-bold uppercase tracking-widest text-primary">Projetos</p>
+            </div>
+            <div class="flex shrink-0 items-center gap-1.5">
             <UButton
               type="button"
               color="primary"
@@ -535,31 +566,37 @@ async function run(action: () => Promise<void>) {
               square
               :disabled="loading"
               aria-label="Adicionar projeto"
-              class="cursor-pointer"
+              class="rounded-full shadow-sm shadow-blue-500/10"
               @click="openProjectCreate"
             />
-            <UButton color="neutral" variant="ghost" size="sm" class="cursor-pointer" @click="logoutUser">
+            <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-log-out" class="rounded-full" @click="logoutUser">
               Sair
             </UButton>
+            </div>
           </div>
         </div>
 
-        <div class="mt-5 space-y-1.5">
+        <div class="mt-5 space-y-2 lg:max-h-[calc(100vh-10.5rem)] lg:overflow-y-auto lg:pr-1">
           <button
             v-for="project in projects"
             :key="project.uuid"
             type="button"
-            class="group flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-elevated/60"
-            :class="project.uuid === selectedProjectUuid ? 'bg-primary/10 text-primary ring-1 ring-primary/20' : 'text-default'"
+            class="group flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition-colors"
+            :class="project.uuid === selectedProjectUuid ? 'bg-primary/10 text-primary shadow-sm shadow-blue-500/5 ring-1 ring-primary/20' : 'text-default hover:bg-elevated/60'"
             @click="selectProject(project.uuid)"
           >
-            <span class="truncate font-medium">{{ project.name }}</span>
-            <UBadge v-if="project.uuid === selectedProjectUuid" color="neutral" size="xs" variant="subtle">ativo</UBadge>
+            <span class="flex min-w-0 items-center gap-2">
+              <UIcon name="i-lucide-folder" class="size-4 shrink-0" />
+              <span class="truncate font-medium">{{ project.name }}</span>
+            </span>
+            <UBadge v-if="project.uuid === selectedProjectUuid" color="neutral" size="xs" variant="subtle">
+              {{ activeCount }}
+            </UBadge>
           </button>
 
           <form
             v-if="isCreatingProject"
-            class="flex items-center gap-2 rounded-lg bg-elevated/40 p-2 ring-1 ring-primary/20"
+            class="flex items-center gap-2 rounded-xl border border-primary/20 bg-default p-2 shadow-sm shadow-blue-500/5 ring-1 ring-primary/10"
             @submit.prevent="createProject"
           >
             <UInput
@@ -577,7 +614,7 @@ async function run(action: () => Promise<void>) {
               icon="i-lucide-check"
               square
               aria-label="Salvar projeto"
-              class="cursor-pointer"
+              class="rounded-full"
             />
             <UButton
               type="button"
@@ -586,7 +623,7 @@ async function run(action: () => Promise<void>) {
               icon="i-lucide-x"
               square
               aria-label="Cancelar projeto"
-              class="cursor-pointer"
+              class="rounded-full"
               @click="cancelProjectCreate"
             />
           </form>
@@ -604,32 +641,35 @@ async function run(action: () => Promise<void>) {
 
       <section class="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">
         <div class="mx-auto flex h-full max-w-7xl flex-col gap-6">
-          <div class="flex flex-col gap-4 rounded-xl border border-default bg-default p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-            <div class="min-w-0">
-              <div class="mb-2 flex flex-wrap items-center gap-2">
-                <UBadge color="neutral" variant="subtle">{{ projects.length }} projetos</UBadge>
-                <UBadge v-if="selectedProject" color="primary" variant="soft">{{ activeCount }} em aberto</UBadge>
-                <UBadge v-if="selectedProject" color="success" variant="soft">{{ doneCount }} concluidas</UBadge>
-              </div>
-              <h2 class="truncate text-2xl font-bold text-highlighted sm:text-3xl">
-                {{ selectedProject?.name ?? 'Escolha um projeto' }}
-              </h2>
-              <p class="mt-1 text-sm text-muted">
-                {{ selectedProject ? 'Gerencie as tarefas em lista ou no quadro kanban.' : 'Crie ou selecione um projeto na barra lateral.' }}
-              </p>
-            </div>
+          <div class="min-w-0">
+            <form v-if="selectedProject && isEditingProjectName" class="max-w-2xl" @submit.prevent="saveProjectNameEdit">
+              <UInput
+                ref="projectNameInputRef"
+                v-model="projectNameDraft"
+                color="neutral"
+                variant="outline"
+                size="xl"
+                class="w-full max-w-2xl"
+                :disabled="loading"
+                :ui="{ base: 'px-2 py-1 text-3xl font-bold tracking-tight text-highlighted sm:text-4xl' }"
+                @blur="saveProjectNameEdit"
+                @keydown.esc.prevent="cancelProjectNameEdit"
+              />
+            </form>
 
-            <div v-if="selectedProject" class="flex flex-col gap-2 sm:flex-row sm:items-end">
-              <UFormField label="Nome do projeto" class="sm:w-64">
-                <UInput v-model="projectNameDraft" class="w-full" />
-              </UFormField>
-              <UButton variant="soft" icon="i-lucide-save" :loading="loading" class="cursor-pointer" @click="renameProject">
-                Salvar
-              </UButton>
-              <UButton color="error" variant="ghost" icon="i-lucide-trash-2" class="cursor-pointer" @click="deleteSelectedProject">
-                Excluir
-              </UButton>
-            </div>
+            <button
+              v-else-if="selectedProject"
+              type="button"
+              class="-mx-2 -my-1 max-w-full rounded-lg px-2 py-1 text-left text-3xl font-bold tracking-tight text-highlighted transition hover:bg-elevated/60 hover:ring-1 hover:ring-default sm:text-4xl"
+              title="Clique para alterar o nome do projeto"
+              @click="startProjectNameEdit"
+            >
+              <span class="block truncate">{{ selectedProject.name }}</span>
+            </button>
+
+            <h2 v-else class="text-3xl font-bold tracking-tight text-highlighted sm:text-4xl">
+              Escolha um projeto
+            </h2>
           </div>
 
           <UAlert
@@ -650,17 +690,6 @@ async function run(action: () => Promise<void>) {
           />
 
           <template v-else>
-            <div class="rounded-lg border border-default bg-default p-4">
-              <form class="flex flex-col gap-3 sm:flex-row sm:items-end" @submit.prevent="createTask()">
-                <UFormField label="Nova tarefa" class="min-w-0 flex-1">
-                  <UInput v-model="newTaskTitle" placeholder="Digite o titulo e pressione adicionar" icon="i-lucide-plus" class="w-full" />
-                </UFormField>
-                <UButton type="submit" :loading="loading" icon="i-lucide-plus" class="cursor-pointer">
-                  Adicionar tarefa
-                </UButton>
-              </form>
-            </div>
-
             <UTabs
               v-model="activeTab"
               :content="false"
@@ -677,30 +706,42 @@ async function run(action: () => Promise<void>) {
             </div>
 
             <template v-else-if="activeTab === 'list'">
+              <form class="flex flex-col gap-3 rounded-2xl border border-default bg-default p-3 shadow-sm sm:flex-row" @submit.prevent="createTask()">
+                <UInput
+                  v-model="newTaskTitle"
+                  placeholder="Digite uma nova tarefa"
+                  icon="i-lucide-plus"
+                  class="min-w-0 flex-1"
+                />
+                <UButton type="submit" :loading="loading" icon="i-lucide-plus" class="rounded-full shadow-sm shadow-blue-500/10">
+                  Adicionar
+                </UButton>
+              </form>
+
               <UEmpty
-                v-if="orderedTasks.length === 0"
+                v-if="listedTasks.length === 0"
                 variant="subtle"
                 icon="i-lucide-list-todo"
                 title="Sem tarefas ainda"
                 description="Adicione a primeira tarefa desse projeto."
               />
 
-              <div v-else class="rounded-xl border border-default bg-default">
+              <div v-else class="overflow-hidden rounded-2xl border border-default bg-default shadow-sm">
                 <div class="flex items-center justify-between gap-3 border-b border-default bg-elevated/50 px-4 py-3.5 text-sm">
                   <div class="flex items-center gap-2">
                     <span class="font-semibold text-highlighted">Tarefas</span>
-                    <UBadge color="neutral" variant="subtle">{{ orderedTasks.length }}</UBadge>
+                    <UBadge color="neutral" variant="subtle">{{ listedTasks.length }}</UBadge>
                   </div>
                   <span class="text-xs text-muted">Marque como concluida ou use as acoes no fim da linha.</span>
                 </div>
 
                 <div class="flex flex-col">
                   <div
-                    v-for="task in orderedTasks"
+                    v-for="task in listedTasks"
                     :key="task.uuid"
                     class="border-b border-default last:border-b-0"
                   >
-                    <div class="group flex cursor-default flex-col gap-3 px-2 py-3 text-sm transition-colors hover:bg-elevated/30 sm:px-4 sm:py-[14px] lg:flex-row lg:items-center lg:justify-between">
+                    <div class="group flex cursor-default flex-col gap-3 px-3 py-3 text-sm transition-colors hover:bg-elevated/30 sm:px-4 sm:py-[14px] lg:flex-row lg:items-center lg:justify-between">
                       <div class="flex min-w-0 flex-1 items-center gap-1 sm:gap-2.5">
                         <div class="flex shrink-0 items-center justify-center p-1 sm:p-0" @click.stop>
                           <UCheckbox
@@ -759,7 +800,7 @@ async function run(action: () => Promise<void>) {
                           color="error"
                           variant="ghost"
                           size="xs"
-                          class="cursor-pointer"
+                          class="rounded-full"
                           aria-label="Excluir tarefa"
                           @click="deleteTask(task)"
                         />
@@ -784,7 +825,7 @@ async function run(action: () => Promise<void>) {
                   <section
                     v-for="column in kanbanColumns"
                     :key="column.key"
-                    class="kanban-column flex h-full min-h-[32rem] w-72 min-w-72 flex-shrink-0 flex-col gap-3 rounded-xl border border-default bg-elevated/40 p-3"
+                    class="kanban-column flex h-full min-h-[32rem] w-72 min-w-72 flex-shrink-0 flex-col gap-3 rounded-2xl border border-default bg-elevated/40 p-3 shadow-sm"
                   >
                     <div class="flex flex-shrink-0 items-center justify-between gap-3">
                       <div class="min-w-0">
@@ -792,7 +833,6 @@ async function run(action: () => Promise<void>) {
                           <UIcon :name="statusMeta[column.key].icon" class="size-4 text-muted" />
                           <span class="truncate text-sm font-semibold text-highlighted">{{ column.title }}</span>
                         </div>
-                        <p class="mt-1 line-clamp-2 text-xs text-muted">{{ column.description }}</p>
                       </div>
                       <div class="flex items-center gap-1.5">
                         <UButton
@@ -803,7 +843,7 @@ async function run(action: () => Promise<void>) {
                           square
                           icon="i-lucide-plus"
                           :disabled="loading"
-                          class="cursor-pointer"
+                          class="rounded-full"
                           :aria-label="`Adicionar tarefa em ${column.title}`"
                           @click="openQuickCreate(column.key)"
                         />
@@ -817,9 +857,6 @@ async function run(action: () => Promise<void>) {
                       @click.stop
                       @pointerdown.stop
                     >
-                      <div class="mb-2 flex items-center">
-                        <UBadge color="neutral" variant="subtle">Tarefa</UBadge>
-                      </div>
                       <UInput
                         ref="quickCreateInputRef"
                         v-model="quickCreateTitle"
@@ -830,6 +867,7 @@ async function run(action: () => Promise<void>) {
                         :disabled="loading"
                         class="w-full"
                         :ui="{ base: 'text-sm font-medium' }"
+                        @blur="handleQuickCreateBlur(column.key)"
                         @keydown.enter.prevent.stop="saveQuickCreate(column.key)"
                         @keydown.esc.prevent.stop="cancelQuickCreate"
                         @keydown.stop
@@ -844,42 +882,29 @@ async function run(action: () => Promise<void>) {
                       <div
                         v-for="task in (localItems[column.key] ?? [])"
                         :key="task.uuid"
-                        class="drag-handle-target group flex-shrink-0 cursor-grab select-none rounded-lg border border-default bg-default p-3 transition-colors duration-200 hover:border-primary/40 active:cursor-grabbing"
+                        class="drag-handle-target group flex-shrink-0 cursor-grab select-none rounded-xl border border-default bg-default p-3 transition-colors duration-200 hover:border-primary/40 hover:shadow-sm active:cursor-grabbing"
                       >
-                        <div class="mb-2 min-w-0 text-left text-sm font-medium leading-snug">
-                          <code class="mr-1.5 inline-block rounded bg-muted px-1.5 py-0.5 align-baseline font-mono text-[12px] font-semibold text-highlighted">
-                            {{ taskCode(task) }}
-                          </code>
-                          <span :class="task.status === 'DONE' ? 'text-muted line-through' : 'text-highlighted'">
-                            {{ task.title }}
-                          </span>
-                        </div>
-
-                        <div class="mt-3 flex min-h-6 items-center gap-2 text-[11px] font-medium text-muted">
-                          <div class="flex min-w-0 flex-1 items-center gap-2">
-                            <UBadge :color="statusMeta[task.status].color" variant="subtle" class="shrink-0">
-                              {{ statusMeta[task.status].label }}
-                            </UBadge>
-                            <span class="inline-flex items-center gap-1">
-                              <UIcon name="i-lucide-clock" class="size-3.5" />
-                              {{ formattedDate(task.dateCreated) }}
+                        <div class="flex items-start gap-2">
+                          <div class="min-w-0 flex-1 text-left text-sm font-medium leading-snug">
+                            <code class="mr-1.5 inline-block rounded bg-muted px-1.5 py-0.5 align-baseline font-mono text-[12px] font-semibold text-highlighted">
+                              {{ taskCode(task) }}
+                            </code>
+                            <span :class="task.status === 'DONE' ? 'text-muted line-through' : 'text-highlighted'">
+                              {{ task.title }}
                             </span>
                           </div>
 
-                          <div class="flex shrink-0 items-center justify-end gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
-                            <UIcon name="i-lucide-grip-vertical" class="size-4 text-muted" />
-                            <UButton
-                              color="error"
-                              variant="ghost"
-                              size="xs"
-                              square
-                              icon="i-lucide-trash-2"
-                              class="cursor-pointer"
-                              aria-label="Excluir tarefa"
-                              @click.stop="deleteTask(task)"
-                              @pointerdown.stop
-                            />
-                          </div>
+                          <UButton
+                            color="error"
+                            variant="ghost"
+                            size="xs"
+                            square
+                            icon="i-lucide-trash-2"
+                            class="-mt-1 shrink-0 rounded-full opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
+                            aria-label="Excluir tarefa"
+                            @click.stop="deleteTask(task)"
+                            @pointerdown.stop
+                          />
                         </div>
                       </div>
                     </div>

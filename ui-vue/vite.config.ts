@@ -13,9 +13,16 @@ export default defineConfig({
     ui({
       ui: {
         colors: {
-          primary: 'indigo',
-          secondary: 'cyan',
-          neutral: 'slate'
+          primary: 'blue',
+          secondary: 'green',
+          neutral: 'zinc'
+        },
+        tabs: {
+          slots: {
+            list: 'relative flex w-full overflow-x-auto overflow-y-hidden p-1 group whitespace-nowrap',
+            trigger: 'group relative inline-flex items-center shrink-0 data-[state=inactive]:text-muted hover:data-[state=inactive]:not-disabled:text-default font-medium rounded-md disabled:cursor-not-allowed disabled:opacity-75 transition-colors',
+            label: 'whitespace-nowrap overflow-visible text-clip'
+          }
         },
         button: {
           slots: {

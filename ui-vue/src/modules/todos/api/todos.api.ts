@@ -14,10 +14,6 @@ export const todosApi = {
     return api.put<TodoProject>(`/api/projects/${projectUuid}`, request)
   },
 
-  deleteProject(projectUuid: string) {
-    return api.delete<void>(`/api/projects/${projectUuid}`)
-  },
-
   listTasks(projectUuid: string) {
     return api.get<TodoTask[]>(`/api/projects/${projectUuid}/tasks`)
   },
