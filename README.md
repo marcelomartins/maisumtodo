@@ -41,45 +41,6 @@ Mais Um Todo is a simple project-based todo application. It uses a Quarkus backe
 - FormKit Drag and Drop
 - pnpm
 
-## Repository Layout
-
-```text
-.
-|-- build.gradle
-|-- gradle.properties
-|-- settings.gradle
-|-- src
-|   |-- main
-|   |   |-- java/net/marcelomartins/maisumtodo
-|   |   |   |-- api
-|   |   |   |   |-- AuthResource.java
-|   |   |   |   `-- TodoResource.java
-|   |   |   |-- domain
-|   |   |   |   |-- EntityBase.java
-|   |   |   |   |-- SystemLogin.java
-|   |   |   |   |-- TaskStatus.java
-|   |   |   |   |-- TodoProject.java
-|   |   |   |   `-- TodoTask.java
-|   |   |   |-- infra
-|   |   |   |   |-- AuthTokenService.java
-|   |   |   |   `-- UserRequest.java
-|   |   |   `-- GreetingResource.java
-|   |   `-- resources
-|   |       |-- application.properties
-|   |       `-- db/migration/V1__create_core_tables.sql
-|   |-- test
-|   `-- native-test
-|-- ui-vue
-|   |-- package.json
-|   |-- vite.config.ts
-|   `-- src
-|       |-- core
-|       |-- modules/auth
-|       `-- modules/todos
-`-- documents
-    `-- plano-backend-tarefas.md
-```
-
 ## How It Works
 
 The backend exposes a JSON REST API under `/api`. Authentication is cookie-based: after a successful registration or login, the backend returns an `auth_token` cookie with `HttpOnly`, `SameSite=Strict`, path `/`, and a configurable `Secure` flag.
