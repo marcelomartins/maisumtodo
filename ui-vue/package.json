@@ -11,20 +11,31 @@
     "type-check": "vue-tsc --build"
   },
   "dependencies": {
-    "vue": "^3.5.32"
+    "@formkit/drag-and-drop": "^0.5.3",
+    "@nuxt/ui": "^4.8.1",
+    "tailwindcss": "^4.3.0",
+    "vue": "^3.5.32",
+    "vue-router": "^4.6.4"
   },
   "devDependencies": {
+    "@iconify-json/lucide": "^1.2.111",
     "@tsconfig/node24": "^24.0.4",
     "@types/node": "^24.12.2",
     "@vitejs/plugin-vue": "^6.0.6",
     "@vue/tsconfig": "^0.9.1",
     "npm-run-all2": "^8.0.4",
     "typescript": "~6.0.0",
-    "vite": "^8.0.8",
+    "vite": "^7.3.5",
     "vite-plugin-vue-devtools": "^8.1.1",
     "vue-tsc": "^3.2.6"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@vueuse/core": "14.2.1",
+      "@vueuse/integrations": "14.2.1"
+    }
   }
 }

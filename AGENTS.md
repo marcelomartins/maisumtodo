@@ -58,14 +58,17 @@ Nada além desse escopo deve ser desenvolvido.
 
 ## FRONTEND
 
-- O frontend é feito em Vue 3 e acessa um backend Java Quarkus.
+- O frontend é feito em Vue 3 + Vite com Nuxt UI v4 e acessa um backend Java Quarkus.
 - O frontend fica na pasta `ui-vue`.
 - O frontend em produção é servido pelo backend.
 
 Regras para o frontend:
 
 - Use o gerenciador de dependências pnpm.
+- Sempre busque a documentação dos componentes que forem relevantes pelas URLs da documentação abaixo.
 - Busque outros recursos do próprio projeto para se basear ao criar novos recursos, e use códigos parecidos em funções parecidas.
 - Não execute o projeto em modo desenvolvimento ao realizar a tarefa, a não ser que seja explicitamente solicitado.
-- Quando alterar o frontend, rode o build configurado do frontend, mas não teste no navegador.
+- Para componentes da interface, use sempre o Nuxt UI v4. Busque a documentação nos links presentes nesse site: https://ui.nuxt.com/llms.txt
+- Ou seja, quando precisar de documentação de componentes, acesse o site, que vai ter os links da documentação dos componentes, e depois acesse a documentação do componente que precisa.
+- Quando alterar o frontend, rode `pnpm build`, mas não teste no navegador.
 - Sempre se preocupe com a experiência do usuário, que deve ser simples, fluida e funcional.
